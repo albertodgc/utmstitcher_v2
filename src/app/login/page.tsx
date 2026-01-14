@@ -1,16 +1,13 @@
-import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth/getCurrentUser';
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth/getCurrentUser";
+import LoginForm from "./login-form";
 
 export default async function LoginPage() {
   const user = await getCurrentUser();
 
   if (user) {
-    redirect('/dashboard');
+    redirect("/dashboard");
   }
 
-  return (
-    <main className="min-h-screen flex items-center justify-center">
-      <h1>Login</h1>
-    </main>
-  );
+  return <LoginForm />;
 }

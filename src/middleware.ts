@@ -36,6 +36,15 @@ export async function middleware(request: NextRequest) {
   // and PKCE cookies are properly persisted
   await supabase.auth.getUser();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  
+  if (!user && request.nextUrl.pathname.startsWith("/dashboard")) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+  
+
   return response;
 }
 
