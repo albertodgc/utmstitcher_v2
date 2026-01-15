@@ -17,6 +17,7 @@ export default async function SitePage({ params }: PageProps) {
   const supabase = await createSupabaseServerClient();
   const admin = createSupabaseAdminClient();
 
+  // Auth check
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -25,44 +26,76 @@ export default async function SitePage({ params }: PageProps) {
 
   const orgId = await getOrCreateOrgId(user);
 
-  const { data: site } = await supabase
+  // Load site (ownership enforced)
+  const { data: site, error: siteErr } = await supabase
     .from("sites")
     .select("id, domain")
     .eq("id", siteId)
     .eq("org_id", orgId)
     .single();
 
+  if (siteErr) {
+    return <pre>{siteErr.message}</pre>;
+  }
+
   if (!site) {
     return <main style={{ padding: 24 }}>Site not found.</main>;
   }
 
-  const { data: siteKeyRow } = await admin
+  // Load site API key (first active key)
+  const { data: siteKeyRow, error: keyErr } = await admin
     .from("site_keys")
     .select("api_key")
     .eq("site_id", site.id)
+    .is("revoked_at", null)
     .order("created_at", { ascending: true })
     .limit(1)
     .single();
 
+  if (keyErr) {
+    return <pre>{keyErr.message}</pre>;
+  }
+
   const siteKey = siteKeyRow?.api_key;
 
-  const { data: events } = await admin
+  // Load events (NO identity fields here)
+  const { data: events, error: eventsErr } = await admin
     .from("events")
-    .select(
-      "visitor_id, email, first_name, last_name, first_touch, last_touch, visit_count, created_at"
-    )
+    .select("visitor_id, first_touch, last_touch, visit_count, created_at")
     .eq("site_id", site.id)
     .order("created_at", { ascending: false });
 
+  if (eventsErr) {
+    return <pre>{eventsErr.message}</pre>;
+  }
+
+  // Load identities separately
+  const { data: identities, error: identitiesErr } = await admin
+    .from("identities")
+    .select("visitor_id, email, first_name, last_name")
+    .eq("site_id", site.id);
+
+  if (identitiesErr) {
+    return <pre>{identitiesErr.message}</pre>;
+  }
+
+  // Build identity lookup
+  const identityMap = new Map(
+    (identities || []).map((i) => [i.visitor_id, i])
+  );
+
+  // Aggregate visitors
   const visitorsMap = new Map<string, any>();
 
   for (const e of events || []) {
     if (!visitorsMap.has(e.visitor_id)) {
+      const identity = identityMap.get(e.visitor_id);
+
       visitorsMap.set(e.visitor_id, {
         visitor_id: e.visitor_id,
-        email: e.email,
-        first_name: e.first_name,
-        last_name: e.last_name,
+        email: identity?.email || null,
+        first_name: identity?.first_name || null,
+        last_name: identity?.last_name || null,
         first_touch: e.first_touch,
         last_touch: e.last_touch,
         visit_count: e.visit_count || 1,
@@ -77,7 +110,7 @@ export default async function SitePage({ params }: PageProps) {
     <main style={{ padding: 24 }}>
       <h1>{site.domain}</h1>
 
-      <h2>Tracking snippet</h2>
+      <h2 style={{ marginTop: 24 }}>Tracking snippet</h2>
       <pre>
         {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
       </pre>
