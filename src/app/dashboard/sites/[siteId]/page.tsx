@@ -86,8 +86,9 @@ export default async function SitePage({ params }: PageProps) {
 
       <h2>Tracking snippet</h2>
       <pre>
-{`<script src="/utmstitcher.js" data-site="${siteKey}"></script>`}
+        {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
       </pre>
+
 
       <p>
         <strong>Site ID:</strong> {site.id}
