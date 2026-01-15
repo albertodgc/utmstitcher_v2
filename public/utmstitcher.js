@@ -35,7 +35,9 @@
   
       function clean(obj) {
         var out = {};
-        for (var k in obj) if (obj[k]) out[k] = obj[k];
+        for (var k in obj) {
+          if (obj[k]) out[k] = obj[k];
+        }
         return out;
       }
   
@@ -57,50 +59,75 @@
       var siteKey = script.getAttribute("data-site");
       if (!siteKey) return;
   
+      var apiBase = new URL(script.src).origin;
+  
+      // Visitor ID
       var visitorId = read(VISITOR_KEY);
       if (!visitorId) {
         visitorId = uuidv4();
         write(VISITOR_KEY, visitorId);
       }
   
+      // Visit count
       var visitCount = (read(VISIT_COUNT_KEY) || 0) + 1;
       write(VISIT_COUNT_KEY, visitCount);
   
+      // UTM handling
       var utms = clean(collectUtms());
   
       var firstTouch = read(FIRST_TOUCH_KEY);
       var lastTouch = read(LAST_TOUCH_KEY);
   
       if (!firstTouch && Object.keys(utms).length) {
-        firstTouch = { ...utms, landing_page: location.pathname, timestamp: new Date().toISOString() };
+        firstTouch = {
+          ...utms,
+          landing_page: location.pathname,
+          timestamp: new Date().toISOString(),
+        };
         write(FIRST_TOUCH_KEY, firstTouch);
       }
   
       if (Object.keys(utms).length) {
-        lastTouch = { ...utms, landing_page: location.pathname, timestamp: new Date().toISOString() };
+        lastTouch = {
+          ...utms,
+          landing_page: location.pathname,
+          timestamp: new Date().toISOString(),
+        };
         write(LAST_TOUCH_KEY, lastTouch);
       }
   
-      var payload = {
-        siteKey,
-        visitorId,
-        visitCount,
-        firstTouch,
-        lastTouch,
-        pagePath: location.pathname,
-        userAgent: navigator.userAgent,
-      };
+      function sendEvent() {
+        var payload = {
+          siteKey: siteKey,
+          visitorId: visitorId,
+          visitCount: visitCount,
+          firstTouch: read(FIRST_TOUCH_KEY),
+          lastTouch: read(LAST_TOUCH_KEY),
+          pagePath: location.pathname,
+          userAgent: navigator.userAgent,
+        };
   
-      var apiBase = new URL(script.src).origin;
+        fetch(apiBase + "/api/collect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          keepalive: true,
+        }).catch(function () {});
+      }
   
-      fetch(apiBase + "/api/collect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).then(() => {
-        console.log("[UTM Stitcher] sent");
+      // Fire on page load
+      sendEvent();
+  
+      // Fire again on HubSpot form submit
+      window.addEventListener("message", function (event) {
+        if (
+          event.data &&
+          event.data.type === "hsFormCallback" &&
+          event.data.eventName === "onFormSubmit"
+        ) {
+          sendEvent();
+        }
       });
-  
     } catch (e) {
       console.error("[UTM Stitcher] error", e);
     }
