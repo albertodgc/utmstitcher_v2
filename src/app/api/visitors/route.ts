@@ -23,15 +23,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await admin
     .from("events")
-    .select(
-      `
-      visitor_id,
-      first_touch,
-      last_touch,
-      visit_count,
-      created_at
-      `
-    )
+    .select("visitor_id, first_touch, last_touch, visit_count, created_at")
     .eq("site_id", siteId)
     .order("created_at", { ascending: false });
 
@@ -39,7 +31,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  // Aggregate per visitor
   const map = new Map();
 
   for (const e of data || []) {

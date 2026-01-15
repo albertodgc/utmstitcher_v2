@@ -1,19 +1,28 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth/getCurrentUser";
 import Link from "next/link";
-
-async function getSites() {
-  const res = await fetch(`${process.env.APP_URL}/api/sites`, {
-    cache: "no-store",
-  });
-  return res.json();
-}
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getOrCreateOrgId } from "@/lib/org/getOrCreateOrgId";
 
 export default async function DashboardPage() {
-  const user = await getCurrentUser();
+  const supabase = await createSupabaseServerClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   if (!user) redirect("/login");
 
-  const data = await getSites();
+  const orgId = await getOrCreateOrgId(user);
+
+  const { data: sites, error } = await supabase
+    .from("sites")
+    .select("id, domain, created_at")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return <pre>{error.message}</pre>;
+  }
 
   return (
     <main style={{ padding: 24 }}>
@@ -21,20 +30,16 @@ export default async function DashboardPage() {
 
       <h2 style={{ marginTop: 24 }}>Your sites</h2>
 
-      {data?.ok && data.sites.length === 0 && <p>No sites yet.</p>}
+      {sites?.length === 0 && <p>No sites yet.</p>}
 
-      {data?.ok && data.sites.length > 0 && (
-        <ul>
-          {data.sites.map((site: any) => (
-            <li key={site.id} style={{ marginBottom: 8 }}>
-              <b>{site.domain}</b>{" "}
-              <Link href={`/dashboard/sites/${site.id}`}>View</Link>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {!data?.ok && <pre>{JSON.stringify(data, null, 2)}</pre>}
+      <ul>
+        {sites?.map((site) => (
+          <li key={site.id}>
+            <b>{site.domain}</b>{" "}
+            <Link href={`/dashboard/sites/${site.id}`}>View</Link>
+          </li>
+        ))}
+      </ul>
     </main>
   );
 }
