@@ -167,3 +167,5 @@
     }
   })();
   
+  console.log("[UTM Stitcher] loaded");
+  console.log("[UTM Stitcher] siteKey:", siteKey);
