@@ -74,14 +74,21 @@ export async function POST(req: Request) {
       user_agent: userAgent ?? null,
     });
 
-    if (insertErr) throw insertErr;
+    if (insertErr) {
+        console.error("Supabase insert error:", insertErr);
+        return NextResponse.json(
+          { error: insertErr.message },
+          { status: 500, headers: CORS_HEADERS }
+        );
+      }
+      
 
     return NextResponse.json({ ok: true }, { headers: CORS_HEADERS });
-  } catch (err) {
-    console.error("Collect error:", err);
+  } catch (err: any) {
+    console.error("Collect fatal error:", err);
     return NextResponse.json(
-      { error: "Server error" },
+      { error: err?.message || "Server error" },
       { status: 500, headers: CORS_HEADERS }
     );
-  }
+  }  
 }
