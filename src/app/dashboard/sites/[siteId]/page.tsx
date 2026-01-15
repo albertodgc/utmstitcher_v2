@@ -107,50 +107,93 @@ export default async function SitePage({ params }: PageProps) {
   const visitors = Array.from(visitorsMap.values());
 
   return (
-    <main style={{ padding: 24 }}>
-      <h1>{site.domain}</h1>
-
-      <h2 style={{ marginTop: 24 }}>Tracking snippet</h2>
-      <pre>
-        {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
-      </pre>
-
-      <h2 style={{ marginTop: 32 }}>Visitors</h2>
-
-      {visitors.length === 0 ? (
-        <p>No visitors yet.</p>
-      ) : (
-        <table border={1} cellPadding={6} cellSpacing={0}>
-          <thead>
-            <tr>
-              <th>Visitor</th>
-              <th>Email</th>
-              <th>Name</th>
-              <th>First Touch</th>
-              <th>Last Touch</th>
-              <th>Visits</th>
-              <th>Last Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visitors.map((v) => (
-              <tr key={v.visitor_id}>
-                <td>{v.visitor_id.slice(0, 8)}…</td>
-                <td>{v.email || "-"}</td>
-                <td>
-                  {v.first_name || v.last_name
-                    ? `${v.first_name ?? ""} ${v.last_name ?? ""}`
-                    : "-"}
-                </td>
-                <td>{v.first_touch?.utm_source || "-"}</td>
-                <td>{v.last_touch?.utm_source || "-"}</td>
-                <td>{v.visit_count}</td>
-                <td>{new Date(v.last_seen_at).toLocaleString()}</td>
+    <main style={{ padding: 32, maxWidth: 1100 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 600 }}>
+        {site.domain}
+      </h1>
+  
+      <section style={{ marginTop: 32 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 8 }}>
+          Tracking snippet
+        </h2>
+        <pre
+          style={{
+            background: "#111",
+            border: "1px solid #333",
+            padding: 12,
+            borderRadius: 6,
+            overflowX: "auto",
+            fontSize: 13,
+          }}
+        >
+  {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
+        </pre>
+      </section>
+  
+      <section style={{ marginTop: 48 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 12 }}>
+          Visitors
+        </h2>
+  
+        {visitors.length === 0 ? (
+          <p style={{ opacity: 0.7 }}>No visitors yet.</p>
+        ) : (
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: 14,
+            }}
+          >
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid #333" }}>
+                <th style={{ padding: "8px 6px" }}>Visitor</th>
+                <th style={{ padding: "8px 6px" }}>Email</th>
+                <th style={{ padding: "8px 6px" }}>Name</th>
+                <th style={{ padding: "8px 6px" }}>First Touch</th>
+                <th style={{ padding: "8px 6px" }}>Last Touch</th>
+                <th style={{ padding: "8px 6px" }}>Visits</th>
+                <th style={{ padding: "8px 6px" }}>Last Seen</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </thead>
+            <tbody>
+              {visitors.map((v, idx) => (
+                <tr
+                  key={v.visitor_id}
+                  style={{
+                    background: idx % 2 === 0 ? "transparent" : "#0d0d0d",
+                    borderBottom: "1px solid #222",
+                  }}
+                >
+                  <td style={{ padding: "8px 6px", fontFamily: "monospace" }}>
+                    {v.visitor_id.slice(0, 8)}…
+                  </td>
+                  <td style={{ padding: "8px 6px" }}>
+                    {v.email || "-"}
+                  </td>
+                  <td style={{ padding: "8px 6px" }}>
+                    {v.first_name || v.last_name
+                      ? `${v.first_name ?? ""} ${v.last_name ?? ""}`
+                      : "-"}
+                  </td>
+                  <td style={{ padding: "8px 6px" }}>
+                    {v.first_touch?.utm_source || "-"}
+                  </td>
+                  <td style={{ padding: "8px 6px" }}>
+                    {v.last_touch?.utm_source || "-"}
+                  </td>
+                  <td style={{ padding: "8px 6px", textAlign: "center" }}>
+                    {v.visit_count}
+                  </td>
+                  <td style={{ padding: "8px 6px" }}>
+                    {new Date(v.last_seen_at).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
     </main>
-  );
+  );  
 }
