@@ -21,11 +21,14 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const {
-      siteKey,        // api key from script
+      siteKey,
       visitorId,
       visitCount,
       firstTouch,
       lastTouch,
+      landingUrl,
+      referrer,
+      identity,
       pagePath,
       userAgent,
     } = body;
@@ -39,7 +42,6 @@ export async function POST(req: Request) {
 
     const admin = createSupabaseAdminClient();
 
-    // 1. Resolve site_id from api key
     const keyHash = sha256Hex(siteKey);
 
     const { data: keyRow, error: keyErr } = await admin
@@ -55,13 +57,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // 2. Insert event
     const { error: insertErr } = await admin.from("events").insert({
       site_id: keyRow.site_id,
       visitor_id: visitorId,
       visit_count: visitCount ?? 1,
       first_touch: firstTouch ?? null,
       last_touch: lastTouch ?? null,
+      landing_url: landingUrl ?? null,
+      referrer: referrer ?? null,
+      email: identity?.email ?? null,
+      first_name: identity?.first_name ?? null,
+      last_name: identity?.last_name ?? null,
       page_path: pagePath ?? null,
       user_agent: userAgent ?? null,
     });

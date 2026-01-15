@@ -15,30 +15,26 @@ export default async function SitePage({ params }: PageProps) {
   const supabase = await createSupabaseServerClient();
   const admin = createSupabaseAdminClient();
 
-  // 1) Auth
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
 
-  // 2) Org
   const orgId = await getOrCreateOrgId(user);
 
-  // 3) Site ownership
-  const { data: site, error: siteError } = await supabase
+  const { data: site } = await supabase
     .from("sites")
     .select("id, domain")
     .eq("id", siteId)
     .eq("org_id", orgId)
     .single();
 
-  if (siteError || !site) {
+  if (!site) {
     return <main style={{ padding: 24 }}>Site not found.</main>;
   }
 
-  // 4) Load site key (admin)
-  const { data: siteKeyRow, error: keyError } = await admin
+  const { data: siteKeyRow } = await admin
     .from("site_keys")
     .select("api_key")
     .eq("site_id", site.id)
@@ -46,30 +42,25 @@ export default async function SitePage({ params }: PageProps) {
     .limit(1)
     .single();
 
-  if (keyError || !siteKeyRow) {
-    return (
-      <main style={{ padding: 24 }}>
-        <p>No site key found.</p>
-      </main>
-    );
-  }
+  const siteKey = siteKeyRow?.api_key;
 
-  const siteKey = siteKeyRow.api_key;
-
-  // 5) Load events
   const { data: events } = await admin
     .from("events")
-    .select("visitor_id, first_touch, last_touch, visit_count, created_at")
+    .select(
+      "visitor_id, email, first_name, last_name, first_touch, last_touch, visit_count, created_at"
+    )
     .eq("site_id", site.id)
     .order("created_at", { ascending: false });
 
-  // 6) Aggregate visitors
   const visitorsMap = new Map<string, any>();
 
   for (const e of events || []) {
     if (!visitorsMap.has(e.visitor_id)) {
       visitorsMap.set(e.visitor_id, {
         visitor_id: e.visitor_id,
+        email: e.email,
+        first_name: e.first_name,
+        last_name: e.last_name,
         first_touch: e.first_touch,
         last_touch: e.last_touch,
         visit_count: e.visit_count || 1,
@@ -89,11 +80,6 @@ export default async function SitePage({ params }: PageProps) {
         {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
       </pre>
 
-
-      <p>
-        <strong>Site ID:</strong> {site.id}
-      </p>
-
       <h2 style={{ marginTop: 32 }}>Visitors</h2>
 
       {visitors.length === 0 ? (
@@ -103,6 +89,8 @@ export default async function SitePage({ params }: PageProps) {
           <thead>
             <tr>
               <th>Visitor</th>
+              <th>Email</th>
+              <th>Name</th>
               <th>First Touch</th>
               <th>Last Touch</th>
               <th>Visits</th>
@@ -113,6 +101,12 @@ export default async function SitePage({ params }: PageProps) {
             {visitors.map((v) => (
               <tr key={v.visitor_id}>
                 <td>{v.visitor_id.slice(0, 8)}…</td>
+                <td>{v.email || "-"}</td>
+                <td>
+                  {v.first_name || v.last_name
+                    ? `${v.first_name ?? ""} ${v.last_name ?? ""}`
+                    : "-"}
+                </td>
                 <td>{v.first_touch?.utm_source || "-"}</td>
                 <td>{v.last_touch?.utm_source || "-"}</td>
                 <td>{v.visit_count}</td>
