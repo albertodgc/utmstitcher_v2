@@ -10,11 +10,11 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 /**
- * Handle preflight
+ * Preflight handler
  */
 export async function OPTIONS() {
   return new NextResponse(null, {
@@ -30,19 +30,20 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
+    // 🔥 IMPORTANT: camelCase (matches utmstitcher.js)
     const {
-      site_key,
-      visitor_id,
-      visit_count,
-      first_touch,
-      last_touch,
-      page_path,
-      user_agent,
+      siteKey,
+      visitorId,
+      visitCount,
+      firstTouch,
+      lastTouch,
+      pagePath,
+      userAgent,
     } = body;
 
-    if (!site_key || !visitor_id) {
+    if (!siteKey || !visitorId) {
       return NextResponse.json(
-        { error: "Missing site_key or visitor_id" },
+        { error: "Missing siteKey or visitorId" },
         { status: 400, headers: CORS_HEADERS }
       );
     }
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
      */
     const keyHash = crypto
       .createHash("sha256")
-      .update(site_key)
+      .update(siteKey)
       .digest("hex");
 
     const { data: keyRow, error: keyErr } = await admin
@@ -72,16 +73,16 @@ export async function POST(req: Request) {
     }
 
     /**
-     * Insert event (MATCHES SCHEMA)
+     * Insert event — EXACTLY matches your schema
      */
     const { error: insertErr } = await admin.from("events").insert({
       site_id: keyRow.site_id,
-      visitor_id,
-      visit_count: visit_count ?? 1,
-      first_touch: first_touch ?? null,
-      last_touch: last_touch ?? null,
-      page_path_id: page_path ?? null,
-      user_agent: user_agent ?? null,
+      visitor_id: visitorId,
+      visit_count: visitCount ?? 1,
+      first_touch: firstTouch ?? null,
+      last_touch: lastTouch ?? null,
+      page_path: pagePath ?? null,
+      user_agent: userAgent ?? null,
     });
 
     if (insertErr) {
