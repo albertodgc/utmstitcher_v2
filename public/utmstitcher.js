@@ -123,13 +123,13 @@
           pagePath: location.pathname,
           userAgent: navigator.userAgent,
         }),
-      }).catch(function () {});
+      }).catch(function () { });
     }
 
     // Fire on page load
     sendEvent();
 
-    // HubSpot form capture (ROBUST)
+    // HubSpot form submit interception (FIXED)
     window.addEventListener("message", function (event) {
       if (
         event.data &&
@@ -137,27 +137,32 @@
         event.data.eventName === "onFormSubmit"
       ) {
         try {
-          var f = event.data.data || {};
+          var fieldsArray = event.data.data || [];
 
-          var email =
-            f.email ||
-            f.Email ||
-            f["email_address"] ||
-            f["hs_email"] ||
-            null;
+          var identity = {};
+          for (var i = 0; i < fieldsArray.length; i++) {
+            var field = fieldsArray[i];
+            if (!field || !field.name) continue;
 
-          if (email) {
-            write(IDENTITY_KEY, {
-              email: email,
-              first_name: f.firstname || f.first_name || null,
-              last_name: f.lastname || f.last_name || null,
-            });
+            if (field.name === "email") identity.email = field.value;
+            if (field.name === "firstname") identity.first_name = field.value;
+            if (field.name === "lastname") identity.last_name = field.value;
           }
-        } catch (e) {}
+
+          if (identity.email) {
+            localStorage.setItem(
+              "__utmstitcher__identity",
+              JSON.stringify(identity)
+            );
+          }
+        } catch (e) {
+          console.error("[UTM Stitcher] identity parse failed", e);
+        }
 
         sendEvent();
       }
     });
+
   } catch (e) {
     console.error("[UTM Stitcher]", e);
   }
