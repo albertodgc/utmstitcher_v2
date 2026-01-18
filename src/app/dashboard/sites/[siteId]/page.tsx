@@ -106,11 +106,74 @@ export default async function SitePage({ params }: PageProps) {
 
   const visitors = Array.from(visitorsMap.values());
 
+  // --- Step 2: Summary stats ---
+  const trackedVisitors = visitors.length;
+
+  const identifiedLeads = visitors.filter((v) => !!v.email).length;
+
+  const identifiedWithUtm = visitors.filter((v) => {
+    if (!v.email) return false;
+
+    const ft = v.first_touch || {};
+    const lt = v.last_touch || {};
+
+    // "Has UTM data" = has any UTM field present (first or last)
+    const hasAnyUtm =
+      !!ft.utm_source ||
+      !!ft.utm_medium ||
+      !!ft.utm_campaign ||
+      !!ft.utm_term ||
+      !!ft.utm_content ||
+      !!lt.utm_source ||
+      !!lt.utm_medium ||
+      !!lt.utm_campaign ||
+      !!lt.utm_term ||
+      !!lt.utm_content;
+
+    return hasAnyUtm;
+  }).length;
+
+  const utmCoveragePct =
+    identifiedLeads === 0 ? 0 : Math.round((identifiedWithUtm / identifiedLeads) * 100);
+
+
   return (
     <main style={{ padding: 32, maxWidth: 1100 }}>
       <h1 style={{ fontSize: 24, fontWeight: 600 }}>
         {site.domain}
       </h1>
+
+      <section
+        style={{
+          marginTop: 16,
+          padding: 16,
+          border: "1px solid #222",
+          borderRadius: 8,
+          background: "#0b0b0b",
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: 12,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Tracked visitors</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>{trackedVisitors}</div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Identified leads</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>{identifiedLeads}</div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>Leads with UTM data</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>{utmCoveragePct}%</div>
+          <div style={{ fontSize: 12, opacity: 0.6, marginTop: 2 }}>
+            ({identifiedWithUtm}/{identifiedLeads})
+          </div>
+        </div>
+      </section>
+
 
       {/* Tracking snippet */}
       <section style={{ marginTop: 32 }}>
@@ -128,7 +191,7 @@ export default async function SitePage({ params }: PageProps) {
             fontSize: 13,
           }}
         >
-{`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
+          {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
         </pre>
 
         {/* EXPORT BUTTON — STEP 1 */}
