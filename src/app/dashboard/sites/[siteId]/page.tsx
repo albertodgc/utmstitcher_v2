@@ -58,7 +58,7 @@ export default async function SitePage({ params }: PageProps) {
 
   const siteKey = siteKeyRow?.api_key;
 
-  // Load events (NO identity fields here)
+  // Load events
   const { data: events, error: eventsErr } = await admin
     .from("events")
     .select("visitor_id, first_touch, last_touch, visit_count, created_at")
@@ -69,7 +69,7 @@ export default async function SitePage({ params }: PageProps) {
     return <pre>{eventsErr.message}</pre>;
   }
 
-  // Load identities separately
+  // Load identities
   const { data: identities, error: identitiesErr } = await admin
     .from("identities")
     .select("visitor_id, email, first_name, last_name")
@@ -111,11 +111,13 @@ export default async function SitePage({ params }: PageProps) {
       <h1 style={{ fontSize: 24, fontWeight: 600 }}>
         {site.domain}
       </h1>
-  
+
+      {/* Tracking snippet */}
       <section style={{ marginTop: 32 }}>
         <h2 style={{ fontSize: 18, marginBottom: 8 }}>
           Tracking snippet
         </h2>
+
         <pre
           style={{
             background: "#111",
@@ -126,15 +128,33 @@ export default async function SitePage({ params }: PageProps) {
             fontSize: 13,
           }}
         >
-  {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
+{`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
         </pre>
+
+        {/* EXPORT BUTTON — STEP 1 */}
+        <a
+          href={`/api/export/hubspot?site_id=${site.id}`}
+          style={{
+            display: "inline-block",
+            marginTop: 12,
+            padding: "8px 12px",
+            background: "#2563eb",
+            color: "#fff",
+            borderRadius: 4,
+            textDecoration: "none",
+            fontSize: 14,
+          }}
+        >
+          Export HubSpot CSV
+        </a>
       </section>
-  
+
+      {/* Visitors table */}
       <section style={{ marginTop: 48 }}>
         <h2 style={{ fontSize: 18, marginBottom: 12 }}>
           Visitors
         </h2>
-  
+
         {visitors.length === 0 ? (
           <p style={{ opacity: 0.7 }}>No visitors yet.</p>
         ) : (
@@ -195,5 +215,5 @@ export default async function SitePage({ params }: PageProps) {
         )}
       </section>
     </main>
-  );  
+  );
 }
