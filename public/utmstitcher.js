@@ -23,20 +23,6 @@
       return new URLSearchParams(window.location.search).get(name);
     }
 
-    function collectUtms() {
-      return {
-        utm_source: getParam("utm_source"),
-        utm_medium: getParam("utm_medium"),
-        utm_campaign: getParam("utm_campaign"),
-        utm_term: getParam("utm_term"),
-        utm_content: getParam("utm_content"),
-        gclid: getParam("gclid"),
-        fbclid: getParam("fbclid"),
-        ttclid: getParam("ttclid"),
-        msclkid: getParam("msclkid"),
-      };
-    }
-
     function clean(obj) {
       var out = {};
       for (var k in obj) if (obj[k]) out[k] = obj[k];
@@ -63,49 +49,45 @@
 
     var apiBase = new URL(script.src).origin;
 
-    // --- Visitor ID ---
+    // --- Visitor ---
     var visitorId = read(VISITOR_KEY);
     if (!visitorId) {
       visitorId = uuidv4();
       write(VISITOR_KEY, visitorId);
     }
 
-    // --- Landing URL & Referrer (first only) ---
     if (!read(LANDING_URL_KEY)) write(LANDING_URL_KEY, location.href);
     if (!read(REFERRER_KEY) && document.referrer)
       write(REFERRER_KEY, document.referrer);
 
-    // --- Visit count ---
-    var visitCount = (read(VISIT_COUNT_KEY) || 0) + 1;
-    write(VISIT_COUNT_KEY, visitCount);
+    write(VISIT_COUNT_KEY, (read(VISIT_COUNT_KEY) || 0) + 1);
 
-    // --- UTM handling ---
-    var utms = clean(collectUtms());
-    var firstTouch = read(FIRST_TOUCH_KEY);
-    var lastTouch = read(LAST_TOUCH_KEY);
+    var utms = clean({
+      utm_source: getParam("utm_source"),
+      utm_medium: getParam("utm_medium"),
+      utm_campaign: getParam("utm_campaign"),
+      utm_term: getParam("utm_term"),
+      utm_content: getParam("utm_content"),
+      gclid: getParam("gclid"),
+      fbclid: getParam("fbclid"),
+      ttclid: getParam("ttclid"),
+      msclkid: getParam("msclkid"),
+    });
 
-    if (!firstTouch && Object.keys(utms).length) {
-      firstTouch = {
+    if (!read(FIRST_TOUCH_KEY) && Object.keys(utms).length) {
+      write(FIRST_TOUCH_KEY, {
         ...utms,
         landing_page: location.pathname,
         timestamp: new Date().toISOString(),
-      };
-      write(FIRST_TOUCH_KEY, firstTouch);
+      });
     }
 
     if (Object.keys(utms).length) {
-      lastTouch = {
+      write(LAST_TOUCH_KEY, {
         ...utms,
         landing_page: location.pathname,
         timestamp: new Date().toISOString(),
-      };
-      write(LAST_TOUCH_KEY, lastTouch);
-    }
-
-    function readIdentity() {
-      var id = read(IDENTITY_KEY);
-      if (!id || !id.email) return null;
-      return id;
+      });
     }
 
     function sendEvent() {
@@ -114,68 +96,73 @@
         headers: { "Content-Type": "application/json" },
         keepalive: true,
         body: JSON.stringify({
-          siteKey: siteKey,
-          visitorId: visitorId,
-          visitCount: visitCount,
+          siteKey,
+          visitorId,
+          visitCount: read(VISIT_COUNT_KEY),
           firstTouch: read(FIRST_TOUCH_KEY),
           lastTouch: read(LAST_TOUCH_KEY),
           landingUrl: read(LANDING_URL_KEY),
           referrer: read(REFERRER_KEY),
-          identity: readIdentity(),
+          identity: read(IDENTITY_KEY),
           pagePath: location.pathname,
           userAgent: navigator.userAgent,
         }),
       }).catch(function () {});
     }
 
-    // --- Fire initial event ---
     sendEvent();
 
-    // --- FORM IDENTITY CAPTURE (WP + HubSpot SAFE) ---
-    function attachFormListeners() {
-      var forms = document.querySelectorAll("form");
+    // 🔥 HUBSPOT WP FIX: CAPTURE ON BUTTON CLICK
+    function attachButtonCapture() {
+      var buttons = document.querySelectorAll(
+        'form button, form input[type="submit"]'
+      );
 
-      forms.forEach(function (form) {
-        if (form.__utmstitcher_bound) return;
-        form.__utmstitcher_bound = true;
+      buttons.forEach(function (btn) {
+        if (btn.__utmstitcher_bound) return;
+        btn.__utmstitcher_bound = true;
 
-        form.addEventListener("submit", function () {
-          try {
-            var emailInput =
-              form.querySelector('input[type="email"]') ||
-              form.querySelector('input[name="email"]');
+        btn.addEventListener(
+          "click",
+          function () {
+            try {
+              var form = btn.closest("form");
+              if (!form) return;
 
-            if (!emailInput || !emailInput.value) return;
+              var email =
+                form.querySelector('input[type="email"]') ||
+                form.querySelector('input[name="email"]');
 
-            var identity = {
-              email: emailInput.value,
-            };
+              if (!email || !email.value) return;
 
-            var first =
-              form.querySelector('input[name="firstname"]') ||
-              form.querySelector('input[name="first_name"]');
-            var last =
-              form.querySelector('input[name="lastname"]') ||
-              form.querySelector('input[name="last_name"]');
+              var identity = { email: email.value };
 
-            if (first && first.value) identity.first_name = first.value;
-            if (last && last.value) identity.last_name = last.value;
+              var first =
+                form.querySelector('input[name="firstname"]') ||
+                form.querySelector('input[name="first_name"]');
+              var last =
+                form.querySelector('input[name="lastname"]') ||
+                form.querySelector('input[name="last_name"]');
 
-            write(IDENTITY_KEY, identity);
-          } catch (e) {
-            console.error("[UTM Stitcher] identity capture failed", e);
-          }
+              if (first && first.value) identity.first_name = first.value;
+              if (last && last.value) identity.last_name = last.value;
 
-          sendEvent();
-        });
+              write(IDENTITY_KEY, identity);
+            } catch (e) {
+              console.error("[UTM Stitcher] capture failed", e);
+            }
+
+            sendEvent();
+          },
+          true
+        );
       });
     }
 
-    // WP / async-safe retries
-    attachFormListeners();
-    setTimeout(attachFormListeners, 1000);
-    setTimeout(attachFormListeners, 3000);
-    setTimeout(attachFormListeners, 5000);
+    attachButtonCapture();
+    setTimeout(attachButtonCapture, 1000);
+    setTimeout(attachButtonCapture, 3000);
+    setTimeout(attachButtonCapture, 5000);
   } catch (e) {
     console.error("[UTM Stitcher] fatal error", e);
   }
