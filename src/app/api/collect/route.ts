@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 1️⃣ Validate site key (CORRECT COLUMN)
+    // ------------------------------------
+    // 1️⃣ Validate site key
+    // ------------------------------------
     const { data: keyRow, error: keyErr } = await supabaseAdmin
       .from("site_keys")
       .select("site_id")
@@ -55,18 +57,39 @@ export async function POST(req: NextRequest) {
 
     const siteId = keyRow.site_id;
 
-    // 2️⃣ Insert event
+    // ------------------------------------
+    // 2️⃣ Load existing visitor (if any)
+    // ------------------------------------
+    const { data: existingEvent } = await supabaseAdmin
+      .from("events")
+      .select("first_touch")
+      .eq("site_id", siteId)
+      .eq("visitor_id", visitorId)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const resolvedFirstTouch =
+      existingEvent?.first_touch ?? firstTouch ?? null;
+
+    const resolvedLastTouch = lastTouch ?? null;
+
+    // ------------------------------------
+    // 3️⃣ Insert event (append-only)
+    // ------------------------------------
     await supabaseAdmin.from("events").insert({
       site_id: siteId,
       visitor_id: visitorId,
       page_path: pagePath,
       user_agent: userAgent,
       visit_count: visitCount,
-      first_touch: firstTouch ?? null,
-      last_touch: lastTouch ?? null,
+      first_touch: resolvedFirstTouch,
+      last_touch: resolvedLastTouch,
     });
 
-    // 3️⃣ Identity stitching (atomic + idempotent)
+    // ------------------------------------
+    // 4️⃣ Identity stitching (idempotent)
+    // ------------------------------------
     if (identity?.email) {
       await supabaseAdmin
         .from("identities")

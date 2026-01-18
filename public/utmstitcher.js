@@ -38,7 +38,10 @@
       return new URLSearchParams(window.location.search).get(name);
     }
 
-    function collectUTMs() {
+    // -----------------------------
+    // Attribution (UTM + Referrer)
+    // -----------------------------
+    function collectAttribution() {
       var utm = {
         utm_source: getParam("utm_source"),
         utm_medium: getParam("utm_medium"),
@@ -48,40 +51,67 @@
         landing_page: location.href,
       };
 
-      return Object.values(utm).some(Boolean) ? utm : null;
+      // If any UTM exists → use it
+      if (Object.values(utm).some(Boolean)) {
+        return utm;
+      }
+
+      // Fallback to referrer attribution
+      if (document.referrer) {
+        try {
+          var ref = new URL(document.referrer);
+          return {
+            utm_source: ref.hostname,
+            utm_medium: "referral",
+            utm_campaign: null,
+            utm_term: null,
+            utm_content: null,
+            landing_page: location.href,
+          };
+        } catch {}
+      }
+
+      return null;
     }
 
-    // Visitor
+    // -----------------------------
+    // Visitor identity
+    // -----------------------------
     var visitorId = getLS(VISITOR_KEY);
     if (!visitorId) {
       visitorId = uuid();
       setLS(VISITOR_KEY, visitorId);
     }
 
-    // Visit count
     var visitCount = (getLS(VISIT_COUNT_KEY) || 0) + 1;
     setLS(VISIT_COUNT_KEY, visitCount);
 
-    // Attribution
-    var utms = collectUTMs();
+    // -----------------------------
+    // First / Last touch
+    // -----------------------------
+    var attribution = collectAttribution();
     var firstTouch = getLS(FIRST_TOUCH_KEY);
     var lastTouch = getLS(LAST_TOUCH_KEY);
 
-    if (utms) {
+    if (attribution) {
       if (!firstTouch) {
-        firstTouch = utms;
-        setLS(FIRST_TOUCH_KEY, utms);
+        firstTouch = attribution;
+        setLS(FIRST_TOUCH_KEY, attribution);
       }
-      lastTouch = utms;
-      setLS(LAST_TOUCH_KEY, utms);
+      lastTouch = attribution;
+      setLS(LAST_TOUCH_KEY, attribution);
     }
 
-    // Identity buffer (sent once)
+    // -----------------------------
+    // Identity buffer
+    // -----------------------------
     var pendingIdentity = null;
 
     window.utmStitcherIdentify = function (payload) {
       if (!payload?.email) return;
-      if (getLS(IDENTIFIED_KEY) === payload.email) return;
+
+      var lastIdentified = getLS(IDENTIFIED_KEY);
+      if (lastIdentified === payload.email) return;
 
       pendingIdentity = {
         email: payload.email,
@@ -92,7 +122,9 @@
       setLS(IDENTIFIED_KEY, payload.email);
     };
 
+    // -----------------------------
     // Send event
+    // -----------------------------
     fetch(COLLECT_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
