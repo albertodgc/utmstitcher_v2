@@ -1,36 +1,37 @@
-export const runtime = "nodejs";
+import { NextRequest } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-import { NextResponse } from "next/server";
-import crypto from "crypto";
-import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-
-/**
- * CORS headers – public endpoint
- */
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+const supabaseAdmin = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 /**
- * Preflight handler
+ * Safely parse JSON coming from client
  */
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: CORS_HEADERS,
-  });
+function safeParse(value: any) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
-/**
- * Collect tracking event
- */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const origin = req.headers.get("origin") ?? "*";
+
+  const headers = {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Vary": "Origin",
+  };
+
   try {
     const body = await req.json();
 
-    // 🔥 IMPORTANT: camelCase (matches utmstitcher.js)
     const {
       siteKey,
       visitorId,
@@ -39,68 +40,60 @@ export async function POST(req: Request) {
       lastTouch,
       pagePath,
       userAgent,
-      identity, // 👈 NEW
+      identity,
     } = body;
 
     if (!siteKey || !visitorId) {
-      return NextResponse.json(
-        { error: "Missing siteKey or visitorId" },
-        { status: 400, headers: CORS_HEADERS }
-      );
+      return new Response("Missing siteKey or visitorId", {
+        status: 400,
+        headers,
+      });
     }
 
-    const admin = createSupabaseAdminClient();
-
-    /**
-     * Validate site key
-     */
-    const keyHash = crypto
-      .createHash("sha256")
-      .update(siteKey)
-      .digest("hex");
-
-    const { data: keyRow, error: keyErr } = await admin
+    // 🔐 Validate site key
+    const { data: keyRow, error: keyErr } = await supabaseAdmin
       .from("site_keys")
       .select("site_id")
-      .eq("key_hash", keyHash)
-      .is("revoked_at", null)
+      .eq("public_key", siteKey)
       .single();
 
     if (keyErr || !keyRow) {
-      return NextResponse.json(
-        { error: "Invalid site key" },
-        { status: 401, headers: CORS_HEADERS }
-      );
+      return new Response("Invalid site key", {
+        status: 401,
+        headers,
+      });
     }
 
-    /**
-     * Insert event
-     */
-    const { error: insertErr } = await admin.from("events").insert({
-      site_id: keyRow.site_id,
+    const siteId = keyRow.site_id;
+
+    // ✅ FIX #1 — parse UTMs as objects
+    const firstTouchObj = safeParse(firstTouch);
+    const lastTouchObj = safeParse(lastTouch);
+
+    // 🔁 Insert event
+    const { error: eventErr } = await supabaseAdmin.from("events").insert({
+      site_id: siteId,
       visitor_id: visitorId,
       visit_count: visitCount ?? 1,
-      first_touch: firstTouch ?? null,
-      last_touch: lastTouch ?? null,
+      first_touch: firstTouchObj,
+      last_touch: lastTouchObj,
       page_path: pagePath ?? null,
       user_agent: userAgent ?? null,
     });
 
-    if (insertErr) {
-      console.error("Supabase insert error:", insertErr);
-      return NextResponse.json(
-        { error: insertErr.message },
-        { status: 500, headers: CORS_HEADERS }
-      );
+    if (eventErr) {
+      console.error("EVENT INSERT ERROR", eventErr);
+      return new Response("Failed to insert event", {
+        status: 500,
+        headers,
+      });
     }
 
-    /**
-     * 🔑 Persist identity (only when email exists)
-     */
+    // ✅ FIX #2 — identity stitched HERE (no /identify endpoint)
     if (identity?.email) {
-      await admin.from("identities").upsert(
+      await supabaseAdmin.from("identities").upsert(
         {
-          site_id: keyRow.site_id,
+          site_id: siteId,
           visitor_id: visitorId,
           email: identity.email,
           first_name: identity.first_name ?? null,
@@ -112,15 +105,27 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json(
-      { ok: true },
-      { status: 200, headers: CORS_HEADERS }
-    );
-  } catch (err: any) {
-    console.error("Collect fatal error:", err);
-    return NextResponse.json(
-      { error: err?.message || "Server error" },
-      { status: 500, headers: CORS_HEADERS }
-    );
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers,
+    });
+  } catch (err) {
+    console.error("COLLECT ERROR", err);
+    return new Response("Server error", {
+      status: 500,
+      headers,
+    });
   }
+}
+
+export async function OPTIONS(req: NextRequest) {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": req.headers.get("origin") ?? "*",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Max-Age": "86400",
+    },
+  });
 }
