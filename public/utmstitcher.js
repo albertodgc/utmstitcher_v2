@@ -85,7 +85,6 @@
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": "Bearer " + SITE_KEY
       },
       body: JSON.stringify({
         siteKey: SITE_KEY,
