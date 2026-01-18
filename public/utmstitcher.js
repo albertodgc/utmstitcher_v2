@@ -1,131 +1,175 @@
 (function () {
   try {
     var PREFIX = "__utmstitcher__";
+    var VISITOR_KEY = PREFIX + "visitor_id";
+    var IDENTIFIED_KEY = PREFIX + "identified";
+    var FIRST_TOUCH_KEY = PREFIX + "first_touch";
+    var LAST_TOUCH_KEY = PREFIX + "last_touch";
+    var VISIT_COUNT_KEY = PREFIX + "visit_count";
 
-    var KEYS = {
-      visitor: PREFIX + "visitor_id",
-      first: PREFIX + "first_touch",
-      last: PREFIX + "last_touch",
-      visits: PREFIX + "visit_count",
-      landing: PREFIX + "landing_url",
-      referrer: PREFIX + "referrer",
-      identity: PREFIX + "identity",
-    };
+    var COLLECT_ENDPOINT = "https://app.utmstitcher.com/api/collect";
+    var IDENTIFY_ENDPOINT = "https://app.utmstitcher.com/api/identify";
 
-    function read(k) {
-      try {
-        return JSON.parse(localStorage.getItem(k));
-      } catch {
-        return null;
-      }
-    }
+    var scriptTag = document.currentScript;
+    var SITE_KEY = scriptTag && scriptTag.getAttribute("data-site");
 
-    function write(k, v) {
-      localStorage.setItem(k, JSON.stringify(v));
-    }
+    if (!SITE_KEY) return;
+
+    /* ------------------------
+       Utilities
+    ------------------------- */
 
     function uuid() {
       if (crypto.randomUUID) return crypto.randomUUID();
       return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-        var r = (Math.random() * 16) | 0;
-        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+        var r = Math.random() * 16 | 0,
+          v = c === "x" ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
       });
     }
 
-    function param(name) {
-      return new URLSearchParams(location.search).get(name);
+    function getLS(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
     }
 
-    function clean(o) {
-      var out = {};
-      for (var k in o) if (o[k]) out[k] = o[k];
-      return out;
+    function setLS(key, value) {
+      try { localStorage.setItem(key, value); } catch {}
     }
 
-    /* ---------- init ---------- */
+    function getParam(name) {
+      return new URLSearchParams(window.location.search).get(name);
+    }
 
-    var script = document.currentScript;
-    if (!script) return;
+    function collectUTMs() {
+      var utm = {
+        utm_source: getParam("utm_source"),
+        utm_medium: getParam("utm_medium"),
+        utm_campaign: getParam("utm_campaign"),
+        utm_term: getParam("utm_term"),
+        utm_content: getParam("utm_content"),
+      };
 
-    var siteKey = script.getAttribute("data-site");
-    if (!siteKey) return;
+      var hasAny = Object.values(utm).some(Boolean);
+      return hasAny ? JSON.stringify(utm) : null;
+    }
 
-    var apiBase = new URL(script.src).origin;
+    /* ------------------------
+       Visitor bootstrap
+    ------------------------- */
 
-    var visitorId = read(KEYS.visitor);
+    var visitorId = getLS(VISITOR_KEY);
     if (!visitorId) {
       visitorId = uuid();
-      write(KEYS.visitor, visitorId);
+      setLS(VISITOR_KEY, visitorId);
     }
 
-    write(KEYS.visits, (read(KEYS.visits) || 0) + 1);
+    var visitCount = parseInt(getLS(VISIT_COUNT_KEY) || "0", 10) + 1;
+    setLS(VISIT_COUNT_KEY, String(visitCount));
 
-    if (!read(KEYS.landing)) write(KEYS.landing, location.href);
-    if (!read(KEYS.referrer) && document.referrer)
-      write(KEYS.referrer, document.referrer);
+    var utms = collectUTMs();
+    var firstTouch = getLS(FIRST_TOUCH_KEY);
+    var lastTouch = utms || getLS(LAST_TOUCH_KEY);
 
-    var utms = clean({
-      utm_source: param("utm_source"),
-      utm_medium: param("utm_medium"),
-      utm_campaign: param("utm_campaign"),
-      utm_term: param("utm_term"),
-      utm_content: param("utm_content"),
-      gclid: param("gclid"),
-      fbclid: param("fbclid"),
-    });
-
-    if (!read(KEYS.first) && Object.keys(utms).length) {
-      write(KEYS.first, { ...utms, ts: new Date().toISOString() });
+    if (!firstTouch && utms) {
+      setLS(FIRST_TOUCH_KEY, utms);
+      firstTouch = utms;
     }
 
-    if (Object.keys(utms).length) {
-      write(KEYS.last, { ...utms, ts: new Date().toISOString() });
+    if (utms) setLS(LAST_TOUCH_KEY, utms);
+
+    /* ------------------------
+       Send collect event
+    ------------------------- */
+
+    fetch(COLLECT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + SITE_KEY
+      },
+      body: JSON.stringify({
+        siteKey: SITE_KEY,
+        visitorId: visitorId,
+        visitCount: visitCount,
+        firstTouch: firstTouch,
+        lastTouch: lastTouch,
+        pagePath: location.pathname,
+        userAgent: navigator.userAgent
+      })
+    }).catch(function () {});
+
+    /* ------------------------
+       Identity capture
+    ------------------------- */
+
+    function extractIdentity(form) {
+      var email = form.querySelector('input[type="email"], input[name*="email" i]');
+      if (!email || !email.value) return null;
+
+      var firstName =
+        form.querySelector('input[name*="first" i]') ||
+        form.querySelector('input[name*="fname" i]');
+
+      var lastName =
+        form.querySelector('input[name*="last" i]') ||
+        form.querySelector('input[name*="lname" i]');
+
+      return {
+        email: email.value.trim(),
+        firstName: firstName ? firstName.value.trim() : null,
+        lastName: lastName ? lastName.value.trim() : null
+      };
     }
 
-    function send() {
-      fetch(apiBase + "/api/collect", {
+    function identifyOnce(identity) {
+      if (!identity.email) return;
+      if (getLS(IDENTIFIED_KEY) === identity.email) return;
+
+      fetch(IDENTIFY_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        keepalive: true,
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + SITE_KEY
+        },
         body: JSON.stringify({
-          siteKey,
-          visitorId,
-          visitCount: read(KEYS.visits),
-          firstTouch: read(KEYS.first),
-          lastTouch: read(KEYS.last),
-          landingUrl: read(KEYS.landing),
-          referrer: read(KEYS.referrer),
-          identity: read(KEYS.identity),
-          pagePath: location.pathname,
-          userAgent: navigator.userAgent,
-        }),
+          siteKey: SITE_KEY,
+          visitorId: visitorId,
+          email: identity.email,
+          firstName: identity.firstName,
+          lastName: identity.lastName
+        })
+      }).then(function () {
+        setLS(IDENTIFIED_KEY, identity.email);
       }).catch(function () {});
     }
 
-    send(); // pageview
+    /* ------------------------
+       Form listeners
+    ------------------------- */
 
-    /* ======================================================
-       🔥 HUBSPOT IFRAME SUBMIT HANDLER (THE FIX)
-       ====================================================== */
+    document.addEventListener("submit", function (e) {
+      var form = e.target;
+      if (!form || !form.querySelector) return;
 
-    window.addEventListener("message", function (e) {
-      if (!e.data || e.data.type !== "hsFormCallback") return;
-      if (e.data.eventName !== "onFormSubmitted") return;
+      var identity = extractIdentity(form);
+      if (identity) identifyOnce(identity);
+    }, true);
 
-      var fields = e.data.data || {};
-      var identity = {};
+    /* ------------------------
+       HubSpot forms support
+    ------------------------- */
 
-      if (fields.email) identity.email = fields.email;
-      if (fields.firstname) identity.first_name = fields.firstname;
-      if (fields.lastname) identity.last_name = fields.lastname;
-
-      if (!identity.email) return;
-
-      write(KEYS.identity, identity);
-      send();
-    });
+    if (window.hbspt && window.hbspt.forms) {
+      window.hbspt.forms.onFormSubmit(function ($form) {
+        try {
+          var el = $form[0];
+          var identity = extractIdentity(el);
+          if (identity) identifyOnce(identity);
+        } catch {}
+      });
+    }
 
   } catch (e) {
-    console.error("[UTM Stitcher]", e);
+    console.warn("[utmstitcher] init failed", e);
   }
 })();
