@@ -12,6 +12,9 @@
 
     if (!SITE_KEY) return;
 
+    // -----------------------------
+    // Utilities
+    // -----------------------------
     function uuid() {
       return crypto.randomUUID
         ? crypto.randomUUID()
@@ -87,23 +90,28 @@
     setLS(VISIT_COUNT_KEY, visitCount);
 
     // -----------------------------
-    // First / Last touch
+    // First / Last touch logic
     // -----------------------------
     var attribution = collectAttribution();
     var firstTouch = getLS(FIRST_TOUCH_KEY);
     var lastTouch = getLS(LAST_TOUCH_KEY);
 
     if (attribution) {
+      // New attribution → update last touch
       if (!firstTouch) {
         firstTouch = attribution;
         setLS(FIRST_TOUCH_KEY, attribution);
       }
       lastTouch = attribution;
       setLS(LAST_TOUCH_KEY, attribution);
+    } else if (firstTouch && !lastTouch) {
+      // Carry forward attribution (industry standard)
+      lastTouch = firstTouch;
+      setLS(LAST_TOUCH_KEY, firstTouch);
     }
 
     // -----------------------------
-    // Identity buffer
+    // Identity buffer (email capture)
     // -----------------------------
     var pendingIdentity = null;
 
