@@ -1,11 +1,6 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -18,6 +13,12 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest) {
   try {
+    // ✅ Create client INSIDE handler (runtime-safe)
+    const supabaseAdmin = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     const body = await req.json();
 
     const {
@@ -58,9 +59,9 @@ export async function POST(req: NextRequest) {
     const siteId = keyRow.site_id;
 
     // ------------------------------------
-    // 2️⃣ Load existing visitor (if any)
+    // 2️⃣ Resolve immutable first touch
     // ------------------------------------
-    const { data: existingEvent } = await supabaseAdmin
+    const { data: firstEvent } = await supabaseAdmin
       .from("events")
       .select("first_touch")
       .eq("site_id", siteId)
@@ -70,7 +71,7 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     const resolvedFirstTouch =
-      existingEvent?.first_touch ?? firstTouch ?? null;
+      firstEvent?.first_touch ?? firstTouch ?? null;
 
     const resolvedLastTouch = lastTouch ?? null;
 
