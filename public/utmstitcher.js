@@ -10,6 +10,8 @@
     var REFERRER_KEY = STORAGE_PREFIX + "referrer";
     var IDENTITY_KEY = STORAGE_PREFIX + "identity";
 
+    /* ---------------- utils ---------------- */
+
     function uuidv4() {
       if (crypto.randomUUID) return crypto.randomUUID();
       return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
@@ -41,6 +43,8 @@
       localStorage.setItem(key, JSON.stringify(value));
     }
 
+    /* ---------------- bootstrap ---------------- */
+
     var script = document.currentScript;
     if (!script) return;
 
@@ -49,7 +53,8 @@
 
     var apiBase = new URL(script.src).origin;
 
-    // --- Visitor ---
+    /* ---------------- visitor ---------------- */
+
     var visitorId = read(VISITOR_KEY);
     if (!visitorId) {
       visitorId = uuidv4();
@@ -90,6 +95,8 @@
       });
     }
 
+    /* ---------------- send ---------------- */
+
     function sendEvent() {
       fetch(apiBase + "/api/collect", {
         method: "POST",
@@ -110,59 +117,71 @@
       }).catch(function () {});
     }
 
+    // initial pageview
     sendEvent();
 
-    // 🔥 HUBSPOT WP FIX: CAPTURE ON BUTTON CLICK
-    function attachButtonCapture() {
-      var buttons = document.querySelectorAll(
-        'form button, form input[type="submit"]'
+    /* ============================================================
+       🔥 FINAL FIX: CAPTURE IDENTITY ON INPUT CHANGE (NOT SUBMIT)
+       ============================================================ */
+
+    function captureFromInputs(root) {
+      var inputs = root.querySelectorAll(
+        'input[type="email"], input[name="email"], input[name="Email"]'
       );
 
-      buttons.forEach(function (btn) {
-        if (btn.__utmstitcher_bound) return;
-        btn.__utmstitcher_bound = true;
+      inputs.forEach(function (input) {
+        if (input.__utmstitcher_bound) return;
+        input.__utmstitcher_bound = true;
 
-        btn.addEventListener(
-          "click",
-          function () {
-            try {
-              var form = btn.closest("form");
-              if (!form) return;
+        function handler() {
+          if (!input.value) return;
 
-              var email =
-                form.querySelector('input[type="email"]') ||
-                form.querySelector('input[name="email"]');
+          var form = input.closest("form");
 
-              if (!email || !email.value) return;
+          var identity = { email: input.value };
 
-              var identity = { email: email.value };
+          if (form) {
+            var first =
+              form.querySelector('input[name="firstname"]') ||
+              form.querySelector('input[name="first_name"]');
+            var last =
+              form.querySelector('input[name="lastname"]') ||
+              form.querySelector('input[name="last_name"]');
 
-              var first =
-                form.querySelector('input[name="firstname"]') ||
-                form.querySelector('input[name="first_name"]');
-              var last =
-                form.querySelector('input[name="lastname"]') ||
-                form.querySelector('input[name="last_name"]');
+            if (first && first.value) identity.first_name = first.value;
+            if (last && last.value) identity.last_name = last.value;
+          }
 
-              if (first && first.value) identity.first_name = first.value;
-              if (last && last.value) identity.last_name = last.value;
+          write(IDENTITY_KEY, identity);
 
-              write(IDENTITY_KEY, identity);
-            } catch (e) {
-              console.error("[UTM Stitcher] capture failed", e);
-            }
+          // send immediately — submit may never fire
+          sendEvent();
+        }
 
-            sendEvent();
-          },
-          true
-        );
+        input.addEventListener("change", handler, true);
+        input.addEventListener("blur", handler, true);
       });
     }
 
-    attachButtonCapture();
-    setTimeout(attachButtonCapture, 1000);
-    setTimeout(attachButtonCapture, 3000);
-    setTimeout(attachButtonCapture, 5000);
+    // initial scan
+    captureFromInputs(document);
+
+    // HubSpot / WP injects late → observe DOM
+    var observer = new MutationObserver(function (mutations) {
+      mutations.forEach(function (m) {
+        m.addedNodes.forEach(function (node) {
+          if (node.nodeType === 1) {
+            captureFromInputs(node);
+          }
+        });
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+
   } catch (e) {
     console.error("[UTM Stitcher] fatal error", e);
   }
