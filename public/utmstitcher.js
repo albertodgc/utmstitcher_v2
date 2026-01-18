@@ -1,49 +1,48 @@
 (function () {
   try {
-    var STORAGE_PREFIX = "__utmstitcher__";
+    var PREFIX = "__utmstitcher__";
 
-    var VISITOR_KEY = STORAGE_PREFIX + "visitor_id";
-    var FIRST_TOUCH_KEY = STORAGE_PREFIX + "first_touch";
-    var LAST_TOUCH_KEY = STORAGE_PREFIX + "last_touch";
-    var VISIT_COUNT_KEY = STORAGE_PREFIX + "visit_count";
-    var LANDING_URL_KEY = STORAGE_PREFIX + "landing_url";
-    var REFERRER_KEY = STORAGE_PREFIX + "referrer";
-    var IDENTITY_KEY = STORAGE_PREFIX + "identity";
+    var KEYS = {
+      visitor: PREFIX + "visitor_id",
+      first: PREFIX + "first_touch",
+      last: PREFIX + "last_touch",
+      visits: PREFIX + "visit_count",
+      landing: PREFIX + "landing_url",
+      referrer: PREFIX + "referrer",
+      identity: PREFIX + "identity",
+    };
 
-    /* ---------------- utils ---------------- */
-
-    function uuidv4() {
-      if (crypto.randomUUID) return crypto.randomUUID();
-      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-        var r = (Math.random() * 16) | 0,
-          v = c === "x" ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
-    }
-
-    function getParam(name) {
-      return new URLSearchParams(window.location.search).get(name);
-    }
-
-    function clean(obj) {
-      var out = {};
-      for (var k in obj) if (obj[k]) out[k] = obj[k];
-      return out;
-    }
-
-    function read(key) {
+    function read(k) {
       try {
-        return JSON.parse(localStorage.getItem(key));
+        return JSON.parse(localStorage.getItem(k));
       } catch {
         return null;
       }
     }
 
-    function write(key, value) {
-      localStorage.setItem(key, JSON.stringify(value));
+    function write(k, v) {
+      localStorage.setItem(k, JSON.stringify(v));
     }
 
-    /* ---------------- bootstrap ---------------- */
+    function uuid() {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+        var r = (Math.random() * 16) | 0;
+        return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+    }
+
+    function param(name) {
+      return new URLSearchParams(location.search).get(name);
+    }
+
+    function clean(o) {
+      var out = {};
+      for (var k in o) if (o[k]) out[k] = o[k];
+      return out;
+    }
+
+    /* ---------- init ---------- */
 
     var script = document.currentScript;
     if (!script) return;
@@ -53,51 +52,37 @@
 
     var apiBase = new URL(script.src).origin;
 
-    /* ---------------- visitor ---------------- */
-
-    var visitorId = read(VISITOR_KEY);
+    var visitorId = read(KEYS.visitor);
     if (!visitorId) {
-      visitorId = uuidv4();
-      write(VISITOR_KEY, visitorId);
+      visitorId = uuid();
+      write(KEYS.visitor, visitorId);
     }
 
-    if (!read(LANDING_URL_KEY)) write(LANDING_URL_KEY, location.href);
-    if (!read(REFERRER_KEY) && document.referrer)
-      write(REFERRER_KEY, document.referrer);
+    write(KEYS.visits, (read(KEYS.visits) || 0) + 1);
 
-    write(VISIT_COUNT_KEY, (read(VISIT_COUNT_KEY) || 0) + 1);
+    if (!read(KEYS.landing)) write(KEYS.landing, location.href);
+    if (!read(KEYS.referrer) && document.referrer)
+      write(KEYS.referrer, document.referrer);
 
     var utms = clean({
-      utm_source: getParam("utm_source"),
-      utm_medium: getParam("utm_medium"),
-      utm_campaign: getParam("utm_campaign"),
-      utm_term: getParam("utm_term"),
-      utm_content: getParam("utm_content"),
-      gclid: getParam("gclid"),
-      fbclid: getParam("fbclid"),
-      ttclid: getParam("ttclid"),
-      msclkid: getParam("msclkid"),
+      utm_source: param("utm_source"),
+      utm_medium: param("utm_medium"),
+      utm_campaign: param("utm_campaign"),
+      utm_term: param("utm_term"),
+      utm_content: param("utm_content"),
+      gclid: param("gclid"),
+      fbclid: param("fbclid"),
     });
 
-    if (!read(FIRST_TOUCH_KEY) && Object.keys(utms).length) {
-      write(FIRST_TOUCH_KEY, {
-        ...utms,
-        landing_page: location.pathname,
-        timestamp: new Date().toISOString(),
-      });
+    if (!read(KEYS.first) && Object.keys(utms).length) {
+      write(KEYS.first, { ...utms, ts: new Date().toISOString() });
     }
 
     if (Object.keys(utms).length) {
-      write(LAST_TOUCH_KEY, {
-        ...utms,
-        landing_page: location.pathname,
-        timestamp: new Date().toISOString(),
-      });
+      write(KEYS.last, { ...utms, ts: new Date().toISOString() });
     }
 
-    /* ---------------- send ---------------- */
-
-    function sendEvent() {
+    function send() {
       fetch(apiBase + "/api/collect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,84 +90,42 @@
         body: JSON.stringify({
           siteKey,
           visitorId,
-          visitCount: read(VISIT_COUNT_KEY),
-          firstTouch: read(FIRST_TOUCH_KEY),
-          lastTouch: read(LAST_TOUCH_KEY),
-          landingUrl: read(LANDING_URL_KEY),
-          referrer: read(REFERRER_KEY),
-          identity: read(IDENTITY_KEY),
+          visitCount: read(KEYS.visits),
+          firstTouch: read(KEYS.first),
+          lastTouch: read(KEYS.last),
+          landingUrl: read(KEYS.landing),
+          referrer: read(KEYS.referrer),
+          identity: read(KEYS.identity),
           pagePath: location.pathname,
           userAgent: navigator.userAgent,
         }),
       }).catch(function () {});
     }
 
-    // initial pageview
-    sendEvent();
+    send(); // pageview
 
-    /* ============================================================
-       🔥 FINAL FIX: CAPTURE IDENTITY ON INPUT CHANGE (NOT SUBMIT)
-       ============================================================ */
+    /* ======================================================
+       🔥 HUBSPOT IFRAME SUBMIT HANDLER (THE FIX)
+       ====================================================== */
 
-    function captureFromInputs(root) {
-      var inputs = root.querySelectorAll(
-        'input[type="email"], input[name="email"], input[name="Email"]'
-      );
+    window.addEventListener("message", function (e) {
+      if (!e.data || e.data.type !== "hsFormCallback") return;
+      if (e.data.eventName !== "onFormSubmitted") return;
 
-      inputs.forEach(function (input) {
-        if (input.__utmstitcher_bound) return;
-        input.__utmstitcher_bound = true;
+      var fields = e.data.data || {};
+      var identity = {};
 
-        function handler() {
-          if (!input.value) return;
+      if (fields.email) identity.email = fields.email;
+      if (fields.firstname) identity.first_name = fields.firstname;
+      if (fields.lastname) identity.last_name = fields.lastname;
 
-          var form = input.closest("form");
+      if (!identity.email) return;
 
-          var identity = { email: input.value };
-
-          if (form) {
-            var first =
-              form.querySelector('input[name="firstname"]') ||
-              form.querySelector('input[name="first_name"]');
-            var last =
-              form.querySelector('input[name="lastname"]') ||
-              form.querySelector('input[name="last_name"]');
-
-            if (first && first.value) identity.first_name = first.value;
-            if (last && last.value) identity.last_name = last.value;
-          }
-
-          write(IDENTITY_KEY, identity);
-
-          // send immediately — submit may never fire
-          sendEvent();
-        }
-
-        input.addEventListener("change", handler, true);
-        input.addEventListener("blur", handler, true);
-      });
-    }
-
-    // initial scan
-    captureFromInputs(document);
-
-    // HubSpot / WP injects late → observe DOM
-    var observer = new MutationObserver(function (mutations) {
-      mutations.forEach(function (m) {
-        m.addedNodes.forEach(function (node) {
-          if (node.nodeType === 1) {
-            captureFromInputs(node);
-          }
-        });
-      });
-    });
-
-    observer.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
+      write(KEYS.identity, identity);
+      send();
     });
 
   } catch (e) {
-    console.error("[UTM Stitcher] fatal error", e);
+    console.error("[UTM Stitcher]", e);
   }
 })();
