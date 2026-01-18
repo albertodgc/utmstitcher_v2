@@ -63,22 +63,24 @@
 
     var apiBase = new URL(script.src).origin;
 
-    // Visitor ID
+    // --- Visitor ID ---
     var visitorId = read(VISITOR_KEY);
     if (!visitorId) {
       visitorId = uuidv4();
       write(VISITOR_KEY, visitorId);
     }
 
-    // First landing
+    // --- Landing URL & Referrer (first only) ---
     if (!read(LANDING_URL_KEY)) write(LANDING_URL_KEY, location.href);
-    if (!read(REFERRER_KEY) && document.referrer) write(REFERRER_KEY, document.referrer);
+    if (!read(REFERRER_KEY) && document.referrer)
+      write(REFERRER_KEY, document.referrer);
 
+    // --- Visit count ---
     var visitCount = (read(VISIT_COUNT_KEY) || 0) + 1;
     write(VISIT_COUNT_KEY, visitCount);
 
+    // --- UTM handling ---
     var utms = clean(collectUtms());
-
     var firstTouch = read(FIRST_TOUCH_KEY);
     var lastTouch = read(LAST_TOUCH_KEY);
 
@@ -101,9 +103,9 @@
     }
 
     function readIdentity() {
-      var identity = read(IDENTITY_KEY);
-      if (!identity || !identity.email) return null;
-      return identity;
+      var id = read(IDENTITY_KEY);
+      if (!id || !id.email) return null;
+      return id;
     }
 
     function sendEvent() {
@@ -112,9 +114,9 @@
         headers: { "Content-Type": "application/json" },
         keepalive: true,
         body: JSON.stringify({
-          siteKey,
-          visitorId,
-          visitCount,
+          siteKey: siteKey,
+          visitorId: visitorId,
+          visitCount: visitCount,
           firstTouch: read(FIRST_TOUCH_KEY),
           lastTouch: read(LAST_TOUCH_KEY),
           landingUrl: read(LANDING_URL_KEY),
@@ -123,47 +125,58 @@
           pagePath: location.pathname,
           userAgent: navigator.userAgent,
         }),
-      }).catch(function () { });
+      }).catch(function () {});
     }
 
-    // Fire on page load
+    // --- Fire initial event ---
     sendEvent();
 
-    // HubSpot form submit interception (FIXED)
-    window.addEventListener("message", function (event) {
-      if (
-        event.data &&
-        event.data.type === "hsFormCallback" &&
-        event.data.eventName === "onFormSubmit"
-      ) {
-        try {
-          var fieldsArray = event.data.data || [];
+    // --- FORM IDENTITY CAPTURE (WP + HubSpot SAFE) ---
+    function attachFormListeners() {
+      var forms = document.querySelectorAll("form");
 
-          var identity = {};
-          for (var i = 0; i < fieldsArray.length; i++) {
-            var field = fieldsArray[i];
-            if (!field || !field.name) continue;
+      forms.forEach(function (form) {
+        if (form.__utmstitcher_bound) return;
+        form.__utmstitcher_bound = true;
 
-            if (field.name === "email") identity.email = field.value;
-            if (field.name === "firstname") identity.first_name = field.value;
-            if (field.name === "lastname") identity.last_name = field.value;
+        form.addEventListener("submit", function () {
+          try {
+            var emailInput =
+              form.querySelector('input[type="email"]') ||
+              form.querySelector('input[name="email"]');
+
+            if (!emailInput || !emailInput.value) return;
+
+            var identity = {
+              email: emailInput.value,
+            };
+
+            var first =
+              form.querySelector('input[name="firstname"]') ||
+              form.querySelector('input[name="first_name"]');
+            var last =
+              form.querySelector('input[name="lastname"]') ||
+              form.querySelector('input[name="last_name"]');
+
+            if (first && first.value) identity.first_name = first.value;
+            if (last && last.value) identity.last_name = last.value;
+
+            write(IDENTITY_KEY, identity);
+          } catch (e) {
+            console.error("[UTM Stitcher] identity capture failed", e);
           }
 
-          if (identity.email) {
-            localStorage.setItem(
-              "__utmstitcher__identity",
-              JSON.stringify(identity)
-            );
-          }
-        } catch (e) {
-          console.error("[UTM Stitcher] identity parse failed", e);
-        }
+          sendEvent();
+        });
+      });
+    }
 
-        sendEvent();
-      }
-    });
-
+    // WP / async-safe retries
+    attachFormListeners();
+    setTimeout(attachFormListeners, 1000);
+    setTimeout(attachFormListeners, 3000);
+    setTimeout(attachFormListeners, 5000);
   } catch (e) {
-    console.error("[UTM Stitcher]", e);
+    console.error("[UTM Stitcher] fatal error", e);
   }
 })();
