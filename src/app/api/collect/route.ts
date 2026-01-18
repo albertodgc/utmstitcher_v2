@@ -39,6 +39,7 @@ export async function POST(req: Request) {
       lastTouch,
       pagePath,
       userAgent,
+      identity, // 👈 NEW
     } = body;
 
     if (!siteKey || !visitorId) {
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
     }
 
     /**
-     * Insert event — EXACTLY matches your schema
+     * Insert event
      */
     const { error: insertErr } = await admin.from("events").insert({
       site_id: keyRow.site_id,
@@ -90,6 +91,24 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: insertErr.message },
         { status: 500, headers: CORS_HEADERS }
+      );
+    }
+
+    /**
+     * 🔑 Persist identity (only when email exists)
+     */
+    if (identity?.email) {
+      await admin.from("identities").upsert(
+        {
+          site_id: keyRow.site_id,
+          visitor_id: visitorId,
+          email: identity.email,
+          first_name: identity.first_name ?? null,
+          last_name: identity.last_name ?? null,
+        },
+        {
+          onConflict: "site_id,visitor_id",
+        }
       );
     }
 
