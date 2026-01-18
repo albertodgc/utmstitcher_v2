@@ -6,29 +6,17 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-/**
- * Safely parse JSON coming from client
- */
-function safeParse(value: any) {
-  if (!value) return null;
-  if (typeof value === "object") return value;
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: corsHeaders });
 }
 
 export async function POST(req: NextRequest) {
-  const origin = req.headers.get("origin") ?? "*";
-
-  const headers = {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-
   try {
     const body = await req.json();
 
@@ -46,86 +34,65 @@ export async function POST(req: NextRequest) {
     if (!siteKey || !visitorId) {
       return new Response("Missing siteKey or visitorId", {
         status: 400,
-        headers,
+        headers: corsHeaders,
       });
     }
 
-    // 🔐 Validate site key
+    // 1️⃣ Validate site key (CORRECT COLUMN)
     const { data: keyRow, error: keyErr } = await supabaseAdmin
       .from("site_keys")
       .select("site_id")
-      .eq("public_key", siteKey)
+      .eq("api_key", siteKey)
+      .is("revoked_at", null)
       .single();
 
     if (keyErr || !keyRow) {
       return new Response("Invalid site key", {
         status: 401,
-        headers,
+        headers: corsHeaders,
       });
     }
 
     const siteId = keyRow.site_id;
 
-    // ✅ FIX #1 — parse UTMs as objects
-    const firstTouchObj = safeParse(firstTouch);
-    const lastTouchObj = safeParse(lastTouch);
-
-    // 🔁 Insert event
-    const { error: eventErr } = await supabaseAdmin.from("events").insert({
+    // 2️⃣ Insert event
+    await supabaseAdmin.from("events").insert({
       site_id: siteId,
       visitor_id: visitorId,
-      visit_count: visitCount ?? 1,
-      first_touch: firstTouchObj,
-      last_touch: lastTouchObj,
-      page_path: pagePath ?? null,
-      user_agent: userAgent ?? null,
+      page_path: pagePath,
+      user_agent: userAgent,
+      visit_count: visitCount,
+      first_touch: firstTouch ?? null,
+      last_touch: lastTouch ?? null,
     });
 
-    if (eventErr) {
-      console.error("EVENT INSERT ERROR", eventErr);
-      return new Response("Failed to insert event", {
-        status: 500,
-        headers,
-      });
-    }
-
-    // ✅ FIX #2 — identity stitched HERE (no /identify endpoint)
+    // 3️⃣ Identity stitching (atomic + idempotent)
     if (identity?.email) {
-      await supabaseAdmin.from("identities").upsert(
-        {
-          site_id: siteId,
-          visitor_id: visitorId,
-          email: identity.email,
-          first_name: identity.first_name ?? null,
-          last_name: identity.last_name ?? null,
-        },
-        {
-          onConflict: "site_id,visitor_id",
-        }
-      );
+      await supabaseAdmin
+        .from("identities")
+        .upsert(
+          {
+            site_id: siteId,
+            visitor_id: visitorId,
+            email: identity.email,
+            first_name: identity.first_name ?? null,
+            last_name: identity.last_name ?? null,
+          },
+          {
+            onConflict: "site_id,visitor_id,email",
+          }
+        );
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      status: 200,
-      headers,
-    });
+    return new Response(
+      JSON.stringify({ ok: true }),
+      { status: 200, headers: corsHeaders }
+    );
   } catch (err) {
-    console.error("COLLECT ERROR", err);
+    console.error("collect error:", err);
     return new Response("Server error", {
       status: 500,
-      headers,
+      headers: corsHeaders,
     });
   }
-}
-
-export async function OPTIONS(req: NextRequest) {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": req.headers.get("origin") ?? "*",
-      "Access-Control-Allow-Headers": "Content-Type",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Max-Age": "86400",
-    },
-  });
 }
