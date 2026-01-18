@@ -39,9 +39,7 @@
 
     function clean(obj) {
       var out = {};
-      for (var k in obj) {
-        if (obj[k]) out[k] = obj[k];
-      }
+      for (var k in obj) if (obj[k]) out[k] = obj[k];
       return out;
     }
 
@@ -65,28 +63,20 @@
 
     var apiBase = new URL(script.src).origin;
 
-    // --- Visitor ID ---
+    // Visitor ID
     var visitorId = read(VISITOR_KEY);
     if (!visitorId) {
       visitorId = uuidv4();
       write(VISITOR_KEY, visitorId);
     }
 
-    // --- Landing URL (first only) ---
-    if (!read(LANDING_URL_KEY)) {
-      write(LANDING_URL_KEY, location.href);
-    }
+    // First landing
+    if (!read(LANDING_URL_KEY)) write(LANDING_URL_KEY, location.href);
+    if (!read(REFERRER_KEY) && document.referrer) write(REFERRER_KEY, document.referrer);
 
-    // --- Referrer (first only) ---
-    if (!read(REFERRER_KEY) && document.referrer) {
-      write(REFERRER_KEY, document.referrer);
-    }
-
-    // --- Visit count ---
     var visitCount = (read(VISIT_COUNT_KEY) || 0) + 1;
     write(VISIT_COUNT_KEY, visitCount);
 
-    // --- UTM handling ---
     var utms = clean(collectUtms());
 
     var firstTouch = read(FIRST_TOUCH_KEY);
@@ -117,31 +107,29 @@
     }
 
     function sendEvent() {
-      var payload = {
-        siteKey: siteKey,
-        visitorId: visitorId,
-        visitCount: visitCount,
-        firstTouch: read(FIRST_TOUCH_KEY),
-        lastTouch: read(LAST_TOUCH_KEY),
-        landingUrl: read(LANDING_URL_KEY),
-        referrer: read(REFERRER_KEY),
-        identity: readIdentity(),
-        pagePath: location.pathname,
-        userAgent: navigator.userAgent,
-      };
-
       fetch(apiBase + "/api/collect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
         keepalive: true,
+        body: JSON.stringify({
+          siteKey,
+          visitorId,
+          visitCount,
+          firstTouch: read(FIRST_TOUCH_KEY),
+          lastTouch: read(LAST_TOUCH_KEY),
+          landingUrl: read(LANDING_URL_KEY),
+          referrer: read(REFERRER_KEY),
+          identity: readIdentity(),
+          pagePath: location.pathname,
+          userAgent: navigator.userAgent,
+        }),
       }).catch(function () {});
     }
 
-    // --- Fire on page load ---
+    // Fire on page load
     sendEvent();
 
-    // --- HubSpot form submit interception ---
+    // HubSpot form capture (ROBUST)
     window.addEventListener("message", function (event) {
       if (
         event.data &&
@@ -149,14 +137,20 @@
         event.data.eventName === "onFormSubmit"
       ) {
         try {
-          var fields = event.data.data || {};
+          var f = event.data.data || {};
 
-          // ✅ ONLY store identity when email exists
-          if (fields.email) {
+          var email =
+            f.email ||
+            f.Email ||
+            f["email_address"] ||
+            f["hs_email"] ||
+            null;
+
+          if (email) {
             write(IDENTITY_KEY, {
-              email: fields.email,
-              first_name: fields.firstname || null,
-              last_name: fields.lastname || null,
+              email: email,
+              first_name: f.firstname || f.first_name || null,
+              last_name: f.lastname || f.last_name || null,
             });
           }
         } catch (e) {}
@@ -165,6 +159,6 @@
       }
     });
   } catch (e) {
-    console.error("[UTM Stitcher] error", e);
+    console.error("[UTM Stitcher]", e);
   }
 })();

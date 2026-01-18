@@ -194,22 +194,39 @@ export default async function SitePage({ params }: PageProps) {
           {`<script src="https://app.utmstitcher.com/utmstitcher.js" data-site="${siteKey}"></script>`}
         </pre>
 
-        {/* EXPORT BUTTON — STEP 1 */}
-        <a
-          href={`/api/export/hubspot?site_id=${site.id}`}
-          style={{
-            display: "inline-block",
-            marginTop: 12,
-            padding: "8px 12px",
-            background: "#2563eb",
-            color: "#fff",
-            borderRadius: 4,
-            textDecoration: "none",
-            fontSize: 14,
-          }}
-        >
-          Export HubSpot CSV
-        </a>
+        {identifiedLeads === 0 ? (
+          <button
+            disabled
+            style={{
+              marginTop: 12,
+              padding: "8px 12px",
+              background: "#444",
+              color: "#aaa",
+              borderRadius: 4,
+              fontSize: 14,
+              cursor: "not-allowed",
+            }}
+          >
+            Export HubSpot CSV (no identified leads yet)
+          </button>
+        ) : (
+          <a
+            href={`/api/export/hubspot?site_id=${site.id}`}
+            style={{
+              display: "inline-block",
+              marginTop: 12,
+              padding: "8px 12px",
+              background: "#2563eb",
+              color: "#fff",
+              borderRadius: 4,
+              textDecoration: "none",
+              fontSize: 14,
+            }}
+          >
+            Export HubSpot CSV
+          </a>
+        )}
+
       </section>
 
       {/* Visitors table */}
